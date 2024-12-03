@@ -1,0 +1,16 @@
+services:
+
+  db:
+    image: postgres:17.2-bookworm
+    restart: always
+    environment:
+      POSTGRES_DB: example
+      POSTGRES_USER: example
+      POSTGRES_PASSWORD: example
+    ports:
+      - "5433:5432"
+    volumes:
+      - data:/var/lib/postgresql/data
+
+volumes:
+  data:
