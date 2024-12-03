@@ -8,8 +8,9 @@ use simple_e_commerce_api::utils::custom_validator::validate_url_if_exist;
 use simple_e_commerce_api::utils::token_service;
 use simple_e_commerce_api::utils::token_service::TokenService;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 use std::{env, process};
+use uuid::Uuid;
 use validator::{Validate, ValidationErrors};
 
 #[actix_web::main]
@@ -34,7 +35,8 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/v1/auth")
                     // v1/auth/...
-                    .route("/signup", web::post().to(signup)),
+                    .route("/signup", web::post().to(signup))
+                    .route("/signin", web::post().to(signin)),
             )
     })
     .bind(("127.0.0.1", 8080))?
@@ -45,7 +47,7 @@ async fn main() -> std::io::Result<()> {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Validate)]
 #[serde(rename_all = "camelCase")]
-struct SignupProps {
+struct SignupReqBody {
     #[serde(default)]
     #[serde_as(deserialize_as = "DefaultOnNull")]
     #[serde(skip_serializing)]
@@ -61,6 +63,28 @@ struct SignupProps {
     image: String,
 }
 
+#[derive(FromRow, Debug)]
+#[sqlx(rename_all = "camelCase")]
+struct UsersTable {
+    id: Uuid,
+    name: String,
+    email: String,
+    email_verified: Option<chrono::DateTime<chrono::offset::Utc>>,
+    password: String,
+    image: String,
+    role: String,
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Validate)]
+#[serde(rename_all = "camelCase")]
+struct SigninReqBody {
+    #[validate(email)]
+    email: String,
+    // TODO: custom validation for password
+    password: String,
+}
+
 async fn greeting() -> impl Responder {
     HttpResponse::Ok().body("Hey there!")
 }
@@ -68,19 +92,14 @@ async fn greeting() -> impl Responder {
 async fn signup(
     t: web::Data<TokenService>,
     pool: web::Data<PgPool>,
-    info: web::Json<SignupProps>,
+    body: web::Json<SignupReqBody>,
 ) -> impl Responder {
     let hashed_password = bcrypt::hash("hunter2", bcrypt::DEFAULT_COST).unwrap_or_else(|err| {
         eprintln!("Failed hashed: {}", err);
         process::exit(1)
     });
-    // let valid = bcrypt::verify("hunter2", &hashed_password).unwrap_or_else(|err| {
-    //     eprintln!("Failed valid: {}", err);
-    //     process::exit(1)
-    // });
-    // println!("{hashed_password} = {valid}");
 
-    if let Err(err) = info.validate() {
+    if let Err(err) = body.validate() {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "error": {
                 "code": "ERR_FAILED_CREATE_USER",
@@ -93,10 +112,10 @@ async fn signup(
     match sqlx::query(
         "INSERT INTO users(name, email, password, image, role) VALUES ($1, $2, $3, $4, $5);",
     )
-    .bind(&info.name)
-    .bind(&info.email)
+    .bind(&body.name)
+    .bind(&body.email)
     .bind(&hashed_password)
-    .bind(&info.image)
+    .bind(&body.image)
     .bind("user")
     .execute(pool.get_ref())
     .await
@@ -117,7 +136,69 @@ async fn signup(
         }
         Ok(_) => {
             // Successful insertion
-            match t.create_tokens(&info.email, Some(info.email.clone()), "user") {
+            match t.create_tokens(&body.email, Some(body.email.clone()), "user") {
+                Err(err) => {
+                    // TODO: learn what is this
+                    tracing::error!("Token creation failed: {}", err);
+                    // Return an appropriate error response
+                    HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": {
+                            "code": "ERR_FAILED_CREATE_JWT",
+                            "message": "Failed to create jwt",
+                            "raw": err.to_string(),
+                        },
+                    }))
+                }
+                Ok(token_pair) => HttpResponse::Ok().json(token_pair),
+            }
+        }
+    }
+}
+
+async fn signin(
+    t: web::Data<TokenService>,
+    pool: web::Data<PgPool>,
+    body: web::Json<SigninReqBody>,
+) -> impl Responder {
+    // let valid = bcrypt::verify("hunter2", &hashed_password).unwrap_or_else(|err| {
+    //     eprintln!("Failed valid: {}", err);
+    //     process::exit(1)
+    // });
+    // println!("{hashed_password} = {valid}");
+
+    if let Err(err) = body.validate() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": {
+                "code": "ERR_FAILED_CREATE_USER",
+                "message": "Failed to create user",
+                "raw": err.to_string(),
+            },
+        }));
+    };
+
+    match sqlx::query_as::<sqlx::Postgres, UsersTable>("SELECT * FROM users WHERE email = $1;")
+        .bind(&body.email)
+        .fetch_one(pool.get_ref())
+        .await
+    {
+        Err(err) => {
+            // Log the error (consider using a proper logging framework)
+            // TODO: learn what is this
+            tracing::error!("Failed to insert user: {}", err.to_string());
+
+            // Return an appropriate error response
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": {
+                    "code": "ERR_FAILED_CREATE_USER",
+                    "message": "Failed to create user",
+                    "raw": err.to_string(),
+                },
+            }))
+        }
+        Ok(v) => {
+            dbg!(v);
+            // Successful insertion
+            match t.create_tokens(&body.email, Some(body.email.clone()), "user") {
                 Err(err) => {
                     // TODO: learn what is this
                     tracing::error!("Token creation failed: {}", err);
