@@ -113,7 +113,7 @@ impl TokenService {
             &DecodingKey::from_secret(&self.access_token_secret),
             &validation,
         )
-            .map(|data| data.claims)
+        .map(|data| data.claims)
     }
 
     pub fn verify_access_token(
@@ -147,7 +147,7 @@ impl TokenService {
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let access_claims = self.decode_skip_verify_access_token(access_token)?;
         // Verify the refresh token first
-        let refresh_claims = self.verify_refresh_token(refresh_token)?;
+        self.verify_refresh_token(refresh_token)?;
 
         // Create a new access token for the same user
         let now = Utc::now();
@@ -159,7 +159,7 @@ impl TokenService {
             exp: access_token_exp,
             iat,
             email: access_claims.email, // You might want to retrieve this from your user store
-            role: access_claims.role, // You might want to retrieve this from your user store
+            role: access_claims.role,   // You might want to retrieve this from your user store
         };
 
         // Encode and return new access token

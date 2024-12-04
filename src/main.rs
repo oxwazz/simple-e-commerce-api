@@ -1,8 +1,5 @@
-use actix_web::web::route;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
-use bcrypt::BcryptResult;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use dotenv::dotenv;
-use jsonwebtoken::errors::Error;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DefaultOnNull;
@@ -10,9 +7,9 @@ use simple_e_commerce_api::utils::custom_validator::validate_url_if_exist;
 use simple_e_commerce_api::utils::token_service;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{FromRow, PgPool};
-use std::{env, process};
+use std::process;
 use uuid::Uuid;
-use validator::{Validate, ValidationErrors};
+use validator::Validate;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
